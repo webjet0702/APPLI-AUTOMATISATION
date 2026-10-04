@@ -2,13 +2,23 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { SubmitButton } from "@/components/buttons";
 import { Badge, Card, CardTitle, inputClasses } from "@/components/ui";
+import { MODULE_SUMMARIES } from "@/modules/panels";
 import { MODULES } from "@/platform/modules";
-import { listOrganizations } from "@/platform/organizations";
+import { listInstalledModules, listOrganizations } from "@/platform/organizations";
 import { createClient, loadDemo } from "./actions";
 
 export default async function HomePage() {
   await connection();
   const organizations = await listOrganizations();
+  const summaries = await Promise.all(
+    organizations.map(async (org) => {
+      const installed = await listInstalledModules(org.id);
+      const lines = await Promise.all(
+        installed.filter((m) => MODULE_SUMMARIES[m]).map((m) => MODULE_SUMMARIES[m](org.id)),
+      );
+      return lines.join(" · ");
+    }),
+  );
 
   return (
     <div className="space-y-8">
@@ -42,13 +52,16 @@ export default async function HomePage() {
         <Card>
           <CardTitle>Clients ({organizations.length})</CardTitle>
           <ul className="divide-y divide-slate-100">
-            {organizations.map((org) => (
+            {organizations.map((org, index) => (
               <li key={org.id}>
                 <Link
                   href={`/clients/${org.id}`}
-                  className="-mx-2 flex items-center justify-between rounded-lg px-2 py-3 hover:bg-slate-50"
+                  className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-3 hover:bg-slate-50"
                 >
-                  <span className="font-medium text-slate-900">{org.name}</span>
+                  <span>
+                    <span className="block font-medium text-slate-900">{org.name}</span>
+                    {summaries[index] && <span className="block text-sm text-slate-500">{summaries[index]}</span>}
+                  </span>
                   <span className="flex items-center gap-2">
                     {org.is_demo && <Badge tone="blue">Démo</Badge>}
                     <span className="text-slate-400">→</span>

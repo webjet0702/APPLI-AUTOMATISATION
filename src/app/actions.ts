@@ -23,6 +23,8 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   const password = process.env.APP_PASSWORD;
   if (!password) redirect("/");
   if (String(formData.get("password") ?? "") !== password) {
+    // Ralentit les essais en boucle pour deviner le mot de passe.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     return { error: "Mot de passe incorrect." };
   }
   (await cookies()).set(SESSION_COOKIE, await sessionToken(password), {

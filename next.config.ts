@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["@electric-sql/pglite"],
   experimental: {
     // Les factures (PDF ou photos) dépassent la limite par défaut de 1 Mo.
-    serverActions: { bodySizeLimit: "10mb" },
+    serverActions: { bodySizeLimit: "5mb" },
   },
 };
 

@@ -6,8 +6,14 @@ client (restaurant) a ses propres automatisations activées et ses propres donn�
 **Première automatisation : le suivi des prix fournisseurs.**
 Le restaurant nous transmet ses factures (PDF ou photo). Claude lit chaque ligne,
 l'appli retrouve l'historique de prix de chaque produit et prévient dès qu'un
-fournisseur augmente un prix, avec le surcoût estimé en euros par mois. Un rapport
-prêt à envoyer par WhatsApp ou email est généré automatiquement.
+fournisseur augmente un prix, avec le surcoût estimé en euros par mois et par an.
+Un rapport prêt à envoyer par WhatsApp ou email est généré automatiquement.
+
+- **Plusieurs factures d'un coup** : pratique pour importer l'historique d'un nouveau client.
+- **Factures photographiées page par page** : les pages d'une même facture sont réunies,
+  une page envoyée deux fois est refusée.
+- **Corriger une ligne mal lue** en un clic, puis marquer la facture comme vérifiée.
+- **Page par produit** avec le graphique de son prix dans le temps.
 
 Prochaines automatisations prévues (déjà visibles dans le catalogue) : réponses aux
 avis Google, post du plat du jour sur Instagram et Facebook.
@@ -71,9 +77,10 @@ src/
 ```
 
 **La précision avant tout.** Claude lit la facture, mais le code vérifie derrière :
-quantité × prix = montant de la ligne, somme des lignes = total HT, date valide,
-facture déjà importée… Tout ce qui ne colle pas est signalé « À vérifier ». Le
-calcul des hausses n'utilise pas d'IA : c'est du code testé.
+quantité × prix = montant de la ligne, somme des lignes = total HT (recalculée après
+chaque correction ou page ajoutée), date valide, unité reconnue, facture déjà
+importée… Tout ce qui ne colle pas est signalé « À vérifier ». Le calcul des hausses
+n'utilise pas d'IA : c'est du code testé.
 
 Si un filtre de sécurité de Claude refusait de lire un document, l'API réessaie
 automatiquement avec le modèle de secours recommandé par Anthropic.

@@ -2,12 +2,15 @@ import type { ReactNode } from "react";
 
 // Petits composants visuels réutilisés sur toutes les pages.
 
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return (
-    <section className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>
-      {children}
-    </section>
-  );
+const CARD_TONES = {
+  default: "border-slate-200 bg-white",
+  red: "border-red-200 bg-red-50",
+  amber: "border-amber-200 bg-amber-50",
+  green: "border-emerald-200 bg-emerald-50",
+};
+
+export function Card({ children, tone = "default" }: { children: ReactNode; tone?: keyof typeof CARD_TONES }) {
+  return <section className={`rounded-xl border p-5 shadow-sm ${CARD_TONES[tone]}`}>{children}</section>;
 }
 
 export function CardTitle({ children, hint }: { children: ReactNode; hint?: ReactNode }) {
@@ -35,13 +38,24 @@ export function Badge({ children, tone = "neutral" }: { children: ReactNode; ton
   );
 }
 
-export function Kpi({ label, value, tone = "default" }: { label: string; value: ReactNode; tone?: "default" | "red" }) {
+export function Kpi({
+  label,
+  value,
+  hint,
+  tone = "default",
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: ReactNode;
+  tone?: "default" | "red";
+}) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">{label}</p>
       <p className={`mt-1 text-2xl font-semibold tabular-nums ${tone === "red" ? "text-red-600" : "text-slate-900"}`}>
         {value}
       </p>
+      {hint && <p className="mt-0.5 text-xs text-slate-500">{hint}</p>}
     </div>
   );
 }

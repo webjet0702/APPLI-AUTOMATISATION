@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { formatEuro, formatNumber } from "@/lib/format";
-import { normalizeUnit, productKey, RAW_UNITS, round, type Unit } from "./normalize";
+import { normalizeUnit, parseRawUnit, productKey, RAW_UNITS, round, type Unit } from "./normalize";
 
 // Ce que Claude doit renvoyer pour chaque facture (format imposé à l'API).
 export const ExtractedInvoiceSchema = z.object({
@@ -13,7 +13,10 @@ export const ExtractedInvoiceSchema = z.object({
     z.object({
       reference: z.string().nullable(),
       label: z.string(),
-      unit: z.enum(RAW_UNITS),
+      // Texte libre plutôt qu'une liste fermée : le SDK ne transmet pas les listes
+      // (enum) à l'API, et une unité imprévue ne doit pas faire échouer la lecture.
+      // parseRawUnit la traduit ensuite.
+      unit: z.string().describe(`Unité du prix unitaire : ${RAW_UNITS.join(", ")}`),
       quantity: z.number(),
       unit_price_ht: z.number(),
       line_total_ht: z.number().nullable(),
@@ -85,7 +88,9 @@ export function toInvoiceDraft(extracted: ExtractedInvoice): InvoiceDraft {
       }
     }
     const reference = raw.reference?.trim() || null;
-    const normalized = normalizeUnit(raw.unit, raw.quantity, raw.unit_price_ht);
+    const rawUnit = parseRawUnit(raw.unit);
+    if (!rawUnit) warnings.push(`« ${label} » : unité « ${raw.unit} » non reconnue. Ligne à vérifier.`);
+    const normalized = normalizeUnit(rawUnit ?? "autre", raw.quantity, raw.unit_price_ht);
     lines.push({
       reference,
       label,
@@ -104,14 +109,8 @@ export function toInvoiceDraft(extracted: ExtractedInvoice): InvoiceDraft {
     throw new ExtractionError("Aucune ligne de produit lisible sur cette facture.");
   }
 
-  if (extracted.total_ht !== null && extracted.total_ht > 0) {
-    const sum = lines.reduce((s, l) => s + (l.lineTotal ?? l.quantity * l.unitPrice), 0);
-    if (Math.abs(sum - extracted.total_ht) > extracted.total_ht * 0.02 + 0.05) {
-      warnings.push(
-        `La somme des lignes (${formatEuro(sum)}) ne correspond pas au total HT (${formatEuro(extracted.total_ht)}) : frais non comptés ou ligne mal lue.`,
-      );
-    }
-  }
+  // Le total HT est contrôlé à l'affichage (repository.ts) : sur une facture en
+  // plusieurs pages, il ne se compare qu'une fois toutes les pages réunies.
 
   return {
     supplier,

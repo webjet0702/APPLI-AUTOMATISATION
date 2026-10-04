@@ -39,3 +39,10 @@ export function formatDateTime(date: Date): string {
     timeZone: "Europe/Paris",
   });
 }
+
+/** Lit un nombre tapé à la française (« 12,50 » ou « 1 250,5 »). Renvoie null si illisible. */
+export function parseDecimal(input: string): number | null {
+  const cleaned = input.replace(/[\s\u00a0\u202f€]/g, "").replace(",", ".");
+  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
+  return Number(cleaned);
+}

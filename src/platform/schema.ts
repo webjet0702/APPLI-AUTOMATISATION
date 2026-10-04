@@ -47,6 +47,8 @@ create table if not exists invoices (
   created_at timestamptz not null default now()
 );
 create index if not exists invoices_org_date on invoices (organization_id, invoice_date desc);
+-- Ajouté après la première version : date à laquelle quelqu'un a relu la facture.
+alter table invoices add column if not exists verified_at timestamptz;
 
 create table if not exists invoice_lines (
   id uuid primary key default gen_random_uuid(),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ExtractionError, toInvoiceDraft, type ExtractedInvoice } from "./invoice-draft";
-import { normalizeText, normalizeUnit, productKey } from "./normalize";
+import { parseDecimal } from "@/lib/format";
+import { decodeProductKey, encodeProductKey, normalizeText, normalizeUnit, parseRawUnit, productKey } from "./normalize";
 
 function extracted(overrides: Partial<ExtractedInvoice> = {}): ExtractedInvoice {
   return {
@@ -42,9 +43,33 @@ describe("normalisation", () => {
     expect(normalizeUnit("cl", 600, 0.04)).toEqual({ unit: "l", quantity: 6, unitPrice: 4 });
   });
 
+  it("reconnaît les façons courantes d'écrire une unité", () => {
+    expect(parseRawUnit("Kilo")).toBe("kg");
+    expect(parseRawUnit(" PCE ")).toBe("piece");
+    expect(parseRawUnit("Bt")).toBe("bouteille");
+    expect(parseRawUnit("lt.")).toBe("l");
+    expect(parseRawUnit("palette")).toBeNull();
+  });
+
   it("préfère la référence au libellé pour reconnaître un produit", () => {
     expect(productKey("Crèmerie", "C-1020", "Beurre", "piece")).toBe("cremerie|ref:c 1020|piece");
     expect(productKey("Crèmerie", null, "Beurre doux", "piece")).toBe("cremerie|beurre doux|piece");
+  });
+});
+
+describe("saisie et adresses", () => {
+  it("lit les nombres tapés à la française", () => {
+    expect(parseDecimal("12,50")).toBe(12.5);
+    expect(parseDecimal(" 1 250,5 € ")).toBe(1250.5);
+    expect(parseDecimal("12.5")).toBe(12.5);
+    expect(parseDecimal("douze")).toBeNull();
+    expect(parseDecimal("")).toBeNull();
+  });
+
+  it("encode la clé produit pour l'adresse web, aller-retour", () => {
+    const key = "cremerie des halles|ref:c1020|piece";
+    expect(encodeProductKey(key)).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(decodeProductKey(encodeProductKey(key))).toBe(key);
   });
 });
 
@@ -84,9 +109,13 @@ describe("toInvoiceDraft", () => {
     expect(draft.warnings[0]).toContain("BEURRE DOUX PLAQUE 1KG");
   });
 
-  it("signale un total qui ne correspond pas à la somme des lignes", () => {
-    const draft = toInvoiceDraft(extracted({ total_ht: 120 }));
-    expect(draft.warnings[0]).toContain("ne correspond pas au total HT");
+  it("accepte une unité écrite autrement et signale une unité inconnue", () => {
+    const lines = extracted().lines;
+    lines[0] = { ...lines[0], unit: "Pce" };
+    lines[1] = { ...lines[1], unit: "palette", quantity: 1, unit_price_ht: 24, line_total_ht: 24 };
+    const draft = toInvoiceDraft(extracted({ lines }));
+    expect(draft.lines.map((l) => l.unit)).toEqual(["piece", "autre"]);
+    expect(draft.warnings).toEqual(["« Crème liquide 35% » : unité « palette » non reconnue. Ligne à vérifier."]);
   });
 
   it("reprend les doutes de Claude", () => {

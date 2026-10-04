@@ -1,7 +1,8 @@
+import { formatDate, formatEuro } from "@/lib/format";
 import { getDb } from "@/platform/db";
 import type { PricePoint } from "./analyze";
 import type { InvoiceDraft } from "./invoice-draft";
-import { normalizeText, type Unit } from "./normalize";
+import { normalizeText, productKey, round, type Unit } from "./normalize";
 
 export class DuplicateInvoiceError extends Error {}
 
@@ -15,6 +16,9 @@ export type InvoiceSummary = {
   warnings: string[];
   source: "upload" | "demo";
   fileName: string | null;
+  verified: boolean;
+  /** Somme des montants des lignes enregistrées. */
+  linesTotal: number;
 };
 
 export type InvoiceLine = {
@@ -41,6 +45,8 @@ type InvoiceRow = {
   warnings: string[];
   source: "upload" | "demo";
   file_name: string | null;
+  verified: boolean;
+  lines_total: string | number;
 };
 
 function toInvoiceSummary(row: InvoiceRow): InvoiceSummary {
@@ -54,52 +60,105 @@ function toInvoiceSummary(row: InvoiceRow): InvoiceSummary {
     warnings: row.warnings,
     source: row.source,
     fileName: row.file_name,
+    verified: row.verified,
+    linesTotal: Number(row.lines_total),
   };
+}
+
+/**
+ * Tout ce qu'il faut relire sur une facture : les doutes notés à la lecture, plus
+ * un total HT qui ne correspond pas à la somme des lignes (recalculé à chaque
+ * affichage, donc à jour après une correction ou l'ajout d'une page).
+ */
+export function reviewPoints(invoice: InvoiceSummary): string[] {
+  const points = [...invoice.warnings];
+  const total = invoice.totalHt;
+  if (total !== null && total > 0 && Math.abs(invoice.linesTotal - total) > total * 0.02 + 0.05) {
+    points.push(
+      `La somme des lignes (${formatEuro(invoice.linesTotal)}) ne correspond pas au total HT (${formatEuro(total)}) : page manquante, frais non comptés ou ligne mal lue.`,
+    );
+  }
+  return points;
 }
 
 const INVOICE_COLUMNS = `
   i.id, i.supplier, i.invoice_number, to_char(i.invoice_date, 'YYYY-MM-DD') as invoice_date,
-  i.total_ht, i.warnings, i.source, i.file_name,
-  (select count(*) from invoice_lines l where l.invoice_id = i.id) as line_count`;
+  i.total_ht, i.warnings, i.source, i.file_name, i.verified_at is not null as verified,
+  (select count(*) from invoice_lines l where l.invoice_id = i.id) as line_count,
+  (select coalesce(sum(coalesce(l.line_total_ht, l.quantity * l.unit_price_ht)), 0)
+     from invoice_lines l where l.invoice_id = i.id) as lines_total`;
 
+export type SaveResult = { invoiceId: string; appended: boolean };
+
+/**
+ * Enregistre une facture. Si une facture du même fournisseur porte déjà ce numéro :
+ * - mêmes produits → c'est un doublon, on refuse ;
+ * - autres produits → c'est une autre page de la même facture (photo page par page),
+ *   on ajoute ses lignes à la facture existante.
+ */
 export async function saveInvoice(
   organizationId: string,
   draft: InvoiceDraft,
   options: { fileName?: string | null; source?: "upload" | "demo" } = {},
-): Promise<string> {
+): Promise<SaveResult> {
   const db = await getDb();
   const supplierKey = normalizeText(draft.supplier);
 
   return db.transaction(async (tx) => {
-    if (draft.invoiceNumber) {
-      const existing = await tx.query<{ id: string }>(
-        `select id from invoices where organization_id = $1 and supplier_key = $2 and invoice_number = $3`,
-        [organizationId, supplierKey, draft.invoiceNumber],
+    // Sans numéro, on compare aux factures du même fournisseur à la même date.
+    const candidates = await tx.query<{ id: string }>(
+      draft.invoiceNumber
+        ? `select id from invoices where organization_id = $1 and supplier_key = $2 and invoice_number = $3`
+        : `select id from invoices where organization_id = $1 and supplier_key = $2 and invoice_number is null and invoice_date = $3`,
+      [organizationId, supplierKey, draft.invoiceNumber ?? draft.invoiceDate],
+    );
+
+    for (const candidate of candidates) {
+      const rows = await tx.query<{ product_key: string }>(
+        `select distinct product_key from invoice_lines where invoice_id = $1`,
+        [candidate.id],
       );
-      if (existing.length > 0) {
+      const existingKeys = new Set(rows.map((r) => r.product_key));
+      const overlap = draft.lines.filter((l) => existingKeys.has(l.productKey)).length;
+      if (overlap / draft.lines.length >= 0.5) {
         throw new DuplicateInvoiceError(
-          `La facture n° ${draft.invoiceNumber} de ${draft.supplier} a déjà été importée.`,
+          draft.invoiceNumber
+            ? `La facture n° ${draft.invoiceNumber} de ${draft.supplier} a déjà été importée.`
+            : `Cette facture de ${draft.supplier} du ${formatDate(draft.invoiceDate)} a déjà été importée.`,
         );
       }
     }
 
-    const [invoice] = await tx.query<{ id: string }>(
-      `insert into invoices
-         (organization_id, supplier, supplier_key, invoice_number, invoice_date, total_ht, file_name, source, warnings)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
-       returning id`,
-      [
-        organizationId,
-        draft.supplier,
-        supplierKey,
-        draft.invoiceNumber,
-        draft.invoiceDate,
-        draft.totalHt,
-        options.fileName ?? null,
-        options.source ?? "upload",
-        JSON.stringify(draft.warnings),
-      ],
-    );
+    let invoiceId: string;
+    const appended = Boolean(draft.invoiceNumber && candidates.length > 0);
+    if (appended) {
+      invoiceId = candidates[0].id;
+      await tx.query(
+        `update invoices
+         set warnings = warnings || $2::jsonb, total_ht = coalesce($3, total_ht), verified_at = null
+         where id = $1`,
+        [invoiceId, JSON.stringify(draft.warnings), draft.totalHt],
+      );
+    } else {
+      const [invoice] = await tx.query<{ id: string }>(
+        `insert into invoices
+           (organization_id, supplier, supplier_key, invoice_number, invoice_date, total_ht, file_name, source, warnings)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+         returning id`,
+        [
+          organizationId,
+          draft.supplier,
+          supplierKey,
+          draft.invoiceNumber,
+          draft.invoiceDate,
+          draft.totalHt,
+          options.fileName ?? null,
+          options.source ?? "upload",
+          JSON.stringify(draft.warnings),
+        ],
+      );
+      invoiceId = invoice.id;
+    }
 
     for (const line of draft.lines) {
       await tx.query(
@@ -107,7 +166,7 @@ export async function saveInvoice(
            (invoice_id, organization_id, product_key, reference, label, unit, quantity, unit_price_ht, line_total_ht)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
-          invoice.id,
+          invoiceId,
           organizationId,
           line.productKey,
           line.reference,
@@ -119,7 +178,7 @@ export async function saveInvoice(
         ],
       );
     }
-    return invoice.id;
+    return { invoiceId, appended };
   });
 }
 
@@ -171,6 +230,48 @@ export async function getInvoice(
       lineTotal: toNullableNumber(l.line_total_ht),
     })),
   };
+}
+
+/** Correction manuelle d'une ligne mal lue. Le montant est recalculé. */
+export async function updateInvoiceLine(
+  organizationId: string,
+  invoiceId: string,
+  lineId: string,
+  input: { label: string; reference: string | null; unit: Unit; quantity: number; unitPrice: number },
+): Promise<boolean> {
+  const db = await getDb();
+  const [invoice] = await db.query<{ supplier: string }>(
+    `select supplier from invoices where organization_id = $1 and id = $2`,
+    [organizationId, invoiceId],
+  );
+  if (!invoice) return false;
+  const updated = await db.query<{ id: string }>(
+    `update invoice_lines
+     set label = $4, reference = $5, unit = $6, quantity = $7, unit_price_ht = $8, line_total_ht = $9, product_key = $10
+     where organization_id = $1 and invoice_id = $2 and id = $3
+     returning id`,
+    [
+      organizationId,
+      invoiceId,
+      lineId,
+      input.label,
+      input.reference,
+      input.unit,
+      round(input.quantity, 3),
+      round(input.unitPrice, 4),
+      round(input.quantity * input.unitPrice, 2),
+      productKey(invoice.supplier, input.reference, input.label, input.unit),
+    ],
+  );
+  return updated.length > 0;
+}
+
+export async function markInvoiceVerified(organizationId: string, invoiceId: string): Promise<void> {
+  const db = await getDb();
+  await db.query(`update invoices set verified_at = now() where organization_id = $1 and id = $2`, [
+    organizationId,
+    invoiceId,
+  ]);
 }
 
 export async function deleteInvoice(organizationId: string, invoiceId: string): Promise<void> {

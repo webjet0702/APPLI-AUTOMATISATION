@@ -28,7 +28,7 @@ Règles de remplissage :
 - lines : uniquement les marchandises achetées. N'inclus pas les frais de livraison, consignes, emballages, remises globales, sous-totaux, lignes de TVA ni éco-participations.
 - label : recopie le libellé exactement comme il est imprimé, sans le corriger ni le compléter. Il sert à reconnaître le même produit sur les factures suivantes.
 - reference : le code article du fournisseur s'il est imprimé sur la ligne, sinon null.
-- unit : l'unité dans laquelle le prix unitaire est exprimé (prix au kilo → "kg", au litre → "l", à la pièce → "piece", au colis → "colis", etc.). Si rien ne l'indique, "autre".
+- unit : l'unité dans laquelle le prix unitaire est exprimé, choisie parmi kg, g, l, cl, ml, piece, colis, carton, barquette, bouteille, botte, sac (prix au kilo → "kg", au litre → "l", à la pièce → "piece"). Si rien ne l'indique, "autre".
 - quantity : la quantité facturée dans cette unité (pour un produit vendu au kilo, le poids net).
 - unit_price_ht : le prix unitaire hors taxes, après la remise de la ligne s'il y en a une.
 - line_total_ht : le montant hors taxes de la ligne tel qu'il est imprimé, ou null.
@@ -79,6 +79,10 @@ export async function extractInvoice(
     }
     if (error instanceof Anthropic.APIError) {
       throw new ExtractionError(`Claude est momentanément indisponible (erreur ${error.status}). Réessayez.`);
+    }
+    if (error instanceof Anthropic.AnthropicError) {
+      // Réponse reçue mais illisible (format inattendu).
+      throw new ExtractionError("La lecture de la facture a échoué. Réessayez avec une photo plus nette.");
     }
     throw error;
   }

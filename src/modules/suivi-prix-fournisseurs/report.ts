@@ -35,7 +35,7 @@ export function buildReport(analysis: Analysis, invoiceCount: number): string {
       increases.length === 1 ? "1 hausse de prix détectée" : `${increases.length} hausses de prix détectées`;
     parts.push(
       [
-        `⚠️ ${title}. Surcoût estimé : environ ${formatEuroRounded(analysis.monthlyExtraCost)} par mois.`,
+        `⚠️ ${title}. Surcoût estimé : environ ${formatEuroRounded(analysis.monthlyExtraCost)} par mois, soit ${formatEuroRounded(analysis.monthlyExtraCost * 12)} sur un an.`,
         ...increases.map(describeChange),
       ].join("\n"),
     );

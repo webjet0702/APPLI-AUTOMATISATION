@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { CopyButton } from "@/components/buttons";
 import { Badge, Card, CardTitle, Kpi } from "@/components/ui";
-import { formatDate, formatEuro, formatEuroRounded, formatNumber, formatPct } from "@/lib/format";
+import { formatDate, formatEuro, formatEuroRounded, formatPct } from "@/lib/format";
 import { analyzePrices, DEFAULT_THRESHOLD_PCT, LOOKBACK_DAYS, type PriceChange } from "./analyze";
-import { UNIT_LABELS } from "./normalize";
+import { encodeProductKey, formatQuantity, UNIT_LABELS } from "./normalize";
 import { buildReport } from "./report";
-import { listInvoices, listPricePoints, type InvoiceSummary } from "./repository";
+import { listInvoices, listPricePoints, reviewPoints, type InvoiceSummary } from "./repository";
 import { UploadInvoiceForm } from "./UploadInvoiceForm";
 
 const CHANGE_BADGES: Record<PriceChange["kind"], { label: string; tone: "red" | "amber" | "green" }> = {
@@ -55,7 +55,9 @@ function InvoiceTable({ organizationId, invoices }: { organizationId: string; in
               <td className="px-5 py-2">
                 {inv.source === "demo" ? (
                   <Badge tone="blue">Démo</Badge>
-                ) : inv.warnings.length > 0 ? (
+                ) : inv.verified ? (
+                  <Badge tone="green">Vérifiée</Badge>
+                ) : reviewPoints(inv).length > 0 ? (
                   <Badge tone="amber">À vérifier</Badge>
                 ) : (
                   <Badge tone="green">OK</Badge>
@@ -81,6 +83,7 @@ export async function SupplierPricesPanel({ organizationId }: { organizationId: 
         <Kpi
           label="Surcoût / mois"
           value={formatEuroRounded(analysis.monthlyExtraCost)}
+          hint={analysis.monthlyExtraCost > 0 ? `soit ${formatEuroRounded(analysis.monthlyExtraCost * 12)} par an` : undefined}
           tone={analysis.monthlyExtraCost > 0 ? "red" : "default"}
         />
         <Kpi label="Hausses détectées" value={increases.length} />
@@ -112,7 +115,12 @@ export async function SupplierPricesPanel({ organizationId }: { organizationId: 
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge tone={badge.tone}>{badge.label}</Badge>
-                      <span className="font-medium text-slate-900">{c.label}</span>
+                      <Link
+                        href={`/clients/${organizationId}/produits/${encodeProductKey(c.productKey)}`}
+                        className="font-medium text-slate-900 underline-offset-2 hover:underline"
+                      >
+                        {c.label}
+                      </Link>
                     </div>
                     <p className="mt-0.5 text-sm text-slate-500">
                       {c.supplier} · {formatEuro(c.oldPrice)} → {formatEuro(c.newPrice)}/{UNIT_LABELS[c.unit]} depuis le{" "}
@@ -165,7 +173,12 @@ export async function SupplierPricesPanel({ organizationId }: { organizationId: 
                 {analysis.products.map((p) => (
                   <tr key={p.productKey}>
                     <td className="px-5 py-2">
-                      <p className="text-slate-900">{p.label}</p>
+                      <Link
+                        href={`/clients/${organizationId}/produits/${encodeProductKey(p.productKey)}`}
+                        className="text-slate-900 underline-offset-2 hover:underline"
+                      >
+                        {p.label}
+                      </Link>
                       <p className="text-xs text-slate-500">
                         {p.supplier} · {p.history.length} achat(s)
                       </p>
@@ -180,7 +193,7 @@ export async function SupplierPricesPanel({ organizationId }: { organizationId: 
                       <PctCell value={p.changeVsFirstPct} />
                     </td>
                     <td className="px-5 py-2 text-right text-slate-600">
-                      ≈ {formatNumber(Math.round(p.monthlyQuantity * 10) / 10)} {UNIT_LABELS[p.unit]}
+                      ≈ {formatQuantity(Math.round(p.monthlyQuantity * 10) / 10, p.unit)}
                     </td>
                   </tr>
                 ))}

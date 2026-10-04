@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
-import { ConfirmButton } from "@/components/buttons";
+import { ConfirmButton, SubmitButton } from "@/components/buttons";
 import { Badge, Card, CardTitle } from "@/components/ui";
-import { formatDate, formatEuro, formatNumber } from "@/lib/format";
-import { removeInvoice } from "@/modules/suivi-prix-fournisseurs/actions";
-import { UNIT_LABELS } from "@/modules/suivi-prix-fournisseurs/normalize";
-import { getInvoice } from "@/modules/suivi-prix-fournisseurs/repository";
+import { formatDate, formatEuro } from "@/lib/format";
+import { removeInvoice, verifyInvoice } from "@/modules/suivi-prix-fournisseurs/actions";
+import { InvoiceLineRow } from "@/modules/suivi-prix-fournisseurs/InvoiceLineRow";
+import { getInvoice, reviewPoints } from "@/modules/suivi-prix-fournisseurs/repository";
 import { isUuid } from "@/platform/db";
 
 export default async function InvoicePage(props: PageProps<"/clients/[id]/factures/[invoiceId]">) {
@@ -15,6 +15,7 @@ export default async function InvoicePage(props: PageProps<"/clients/[id]/factur
   if (!isUuid(id) || !isUuid(invoiceId)) notFound();
   const invoice = await getInvoice(id, invoiceId);
   if (!invoice) notFound();
+  const toReview = reviewPoints(invoice);
 
   return (
     <div className="space-y-6">
@@ -37,48 +38,43 @@ export default async function InvoicePage(props: PageProps<"/clients/[id]/factur
         </form>
       </div>
 
-      {invoice.warnings.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardTitle hint="Comparez avec la facture papier. Si une ligne est fausse, supprimez la facture et renvoyez une photo plus nette.">
+      {toReview.length > 0 && !invoice.verified && (
+        <Card tone="amber">
+          <CardTitle hint="Comparez avec la facture papier et corrigez les lignes fausses avec « Corriger ». Une fois relue, marquez-la comme vérifiée.">
             Points à vérifier
           </CardTitle>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-amber-900">
-            {invoice.warnings.map((w) => (
+          <ul className="mb-4 list-disc space-y-1 pl-5 text-sm text-amber-900">
+            {toReview.map((w) => (
               <li key={w}>{w}</li>
             ))}
           </ul>
+          <form action={verifyInvoice.bind(null, id, invoiceId)}>
+            <SubmitButton variant="secondary" pendingLabel="Enregistrement…">
+              J&apos;ai vérifié cette facture
+            </SubmitButton>
+          </form>
         </Card>
       )}
 
       <Card>
-        <CardTitle hint="Ce que Claude a lu. Les grammes et centilitres sont convertis en kg et en litres.">
-          Lignes de la facture {invoice.source === "demo" && <Badge tone="blue">Démo</Badge>}
+        <CardTitle hint="Ce que Claude a lu. Les grammes et centilitres sont convertis en kg et en litres. Un chiffre faux ? Cliquez sur « Corriger ».">
+          Lignes de la facture {invoice.source === "demo" && <Badge tone="blue">Démo</Badge>}{" "}
+          {invoice.verified && <Badge tone="green">Vérifiée</Badge>}
         </CardTitle>
         <div className="-mx-5 overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="text-left text-xs text-slate-500 uppercase">
               <tr className="border-b border-slate-100">
                 <th className="px-5 py-2 font-medium">Produit</th>
                 <th className="px-3 py-2 text-right font-medium">Quantité</th>
                 <th className="px-3 py-2 text-right font-medium">Prix unitaire HT</th>
-                <th className="px-5 py-2 text-right font-medium">Montant HT</th>
+                <th className="px-3 py-2 text-right font-medium">Montant HT</th>
+                <th className="px-5 py-2" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 tabular-nums">
               {invoice.lines.map((line) => (
-                <tr key={line.id}>
-                  <td className="px-5 py-2">
-                    <p className="text-slate-900">{line.label}</p>
-                    {line.reference && <p className="text-xs text-slate-500">Réf. {line.reference}</p>}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {formatNumber(line.quantity)} {UNIT_LABELS[line.unit]}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {formatEuro(line.unitPrice)}/{UNIT_LABELS[line.unit]}
-                  </td>
-                  <td className="px-5 py-2 text-right">{line.lineTotal === null ? "—" : formatEuro(line.lineTotal)}</td>
-                </tr>
+                <InvoiceLineRow key={line.id} organizationId={id} invoiceId={invoiceId} line={line} />
               ))}
             </tbody>
           </table>
