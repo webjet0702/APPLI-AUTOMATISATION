@@ -43,8 +43,8 @@ function draftWith(labels: string[], overrides: Partial<InvoiceDraft> = {}): Inv
 
 // Ces tests utilisent une vraie base Postgres (PGlite, en mémoire).
 
-beforeEach(() => {
-  resetDbForTests();
+beforeEach(async () => {
+  await resetDbForTests();
 });
 
 describe("enregistrement des factures", () => {

@@ -72,9 +72,13 @@ export function getDb(): Promise<Db> {
   return globalForDb.__db;
 }
 
-/** Réinitialise la connexion (utilisé par les tests pour repartir d'une base vide). */
-export function resetDbForTests() {
-  globalForDb.__db = undefined;
+/**
+ * Vide toutes les tables (tests uniquement). On garde la même base : en démarrer
+ * une neuve à chaque test prend 2 à 3 secondes.
+ */
+export async function resetDbForTests() {
+  const db = await getDb();
+  await db.exec(`truncate organizations, executions cascade`);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

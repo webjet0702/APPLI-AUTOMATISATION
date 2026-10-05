@@ -8,5 +8,7 @@ export default defineConfig({
   test: {
     environment: "node",
     env: { PGLITE_DIR: "memory://" },
+    // Le premier test d'un fichier démarre la base PGlite (quelques secondes).
+    testTimeout: 30_000,
   },
 });

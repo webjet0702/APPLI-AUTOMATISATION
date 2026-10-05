@@ -63,4 +63,13 @@ create table if not exists invoice_lines (
   line_total_ht numeric(12, 2)
 );
 create index if not exists invoice_lines_org_product on invoice_lines (organization_id, product_key);
+
+-- Sur Supabase, toute table de « public » est aussi exposée par son API web.
+-- RLS activé sans aucune règle = cette API ne peut rien lire ni écrire ;
+-- l'appli, connectée directement à Postgres, n'est pas concernée.
+alter table organizations enable row level security;
+alter table installations enable row level security;
+alter table executions enable row level security;
+alter table invoices enable row level security;
+alter table invoice_lines enable row level security;
 `;
